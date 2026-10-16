@@ -34,7 +34,14 @@ export class AppComponent {
 	constructor(public readonly session: SessionService) {}
 
 	switchUser(key: string): void {
+		const previousOrg = this.session.user.orgCode;
+
 		this.session.user = users[key];
+
+		if (previousOrg !== this.session.user.orgCode) {
+			this.selectedId = null;
+		}
+
 		this.reload();
 	}
 

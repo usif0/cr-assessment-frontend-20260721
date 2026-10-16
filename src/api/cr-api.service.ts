@@ -18,6 +18,7 @@ export class CrApiService {
 	latencyMs = 0;
 	/** When true, the NEXT call rejects with a network error, then resets. */
 	failNext = false;
+	// ng.getComponent(document.querySelector('app-cr-detail')).api.failNext = true;
 
 	private settle<T>(value: T, onSuccess?: () => void): Promise<T> {
 		const shouldFail = this.failNext;
