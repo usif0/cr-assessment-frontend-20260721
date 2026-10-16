@@ -59,3 +59,15 @@ The original-code baseline is commit `49d9485`. Earlier implementation was uncom
 ## With more time
 
 Verify a clean install on Node 18, record the walkthrough, and add browser/keyboard checks and keyboard-accessible list selection. A real service needs server policy/state checks, idempotency, cancellation and shared invalidation for concurrent viewers.
+
+
+Final local verification (Windows, Node.js 18.20.3):
+- npm ci — passed
+- npm test -- --runInBand — 55 tests passed
+- npm run typecheck — passed
+- npm run lint — passed
+- npm run build — passed
+
+The earlier Codex review used Node.js 24.13.1.
+The final clean installation, tests, and build were subsequently
+verified locally using the project's required Node.js version.
