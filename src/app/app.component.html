@@ -10,5 +10,5 @@
 
 <main class="app-layout" *ngIf="show">
 	<app-cr-list (select)="onSelect($event)"></app-cr-list>
-	<app-cr-detail *ngIf="selectedId" [id]="selectedId"></app-cr-detail>
+	<app-cr-detail *ngIf="selectedId" [id]="selectedId" (decisionCompleted)="onDecisionCompleted()"> </app-cr-detail>
 </main>

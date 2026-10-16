@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CrListComponent } from '../components/cr-list/cr-list.component';
 import { CrDetailComponent } from '../components/cr-detail/cr-detail.component';
@@ -23,6 +23,13 @@ export class AppComponent {
 	readonly userKeys = Object.keys(users);
 	selectedId: string | null = 'CR-1';
 	show = true;
+
+	@ViewChild(CrListComponent)
+	private crList?: CrListComponent;
+
+	onDecisionCompleted(): void {
+		void this.crList?.load();
+	}
 
 	constructor(public readonly session: SessionService) {}
 

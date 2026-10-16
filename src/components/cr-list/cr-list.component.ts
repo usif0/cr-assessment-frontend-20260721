@@ -1,4 +1,4 @@
-import { Component, EventEmitter, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CrApiService } from '../../api/cr-api.service';
 import { SessionService } from '../../session/session.service';
@@ -16,12 +16,22 @@ import { idle, loading, ViewState } from '../../common/view-state';
 	imports: [CommonModule],
 	templateUrl: './cr-list.component.html',
 })
-export class CrListComponent implements OnInit {
+export class CrListComponent implements OnInit, OnDestroy {
 	@Output() select = new EventEmitter<string>();
+	private loadVersion = 0;
 
 	state: ViewState<CrSummary[]> = idle();
 	statusFilter: CrStatus | 'ALL' = 'ALL';
-	readonly statuses: (CrStatus | 'ALL')[] = ['ALL', 'DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'APPROVED', 'APPLIED', 'REJECTED', 'CANCELLED'];
+	readonly statuses: (CrStatus | 'ALL')[] = [
+		'ALL',
+		'DRAFT',
+		'SUBMITTED',
+		'PENDING_APPROVAL',
+		'APPROVED',
+		'APPLIED',
+		'REJECTED',
+		'CANCELLED',
+	];
 
 	constructor(private readonly api: CrApiService, private readonly session: SessionService) {}
 
@@ -29,12 +39,19 @@ export class CrListComponent implements OnInit {
 		void this.load();
 	}
 
+	ngOnDestroy(): void {
+		++this.loadVersion;
+	}
+
 	async load(): Promise<void> {
+		const version = ++this.loadVersion;
 		this.state = loading();
 		try {
 			const rows = await this.api.listChangeRequests(this.session.user);
+			if (version !== this.loadVersion) return;
 			this.state = { status: rows.length ? 'loaded' : 'empty', data: rows };
 		} catch (err) {
+			if (version !== this.loadVersion) return;
 			this.state = { status: 'error', data: null, error: (err as Error).message };
 		}
 	}
@@ -46,7 +63,11 @@ export class CrListComponent implements OnInit {
 	/** Rows to render, after applying the active status filter. */
 	get visibleRows(): CrSummary[] {
 		const rows = this.state.data ?? [];
-		// TODO: narrow `rows` by `this.statusFilter` ('ALL' shows everything).
-		return rows;
+
+		if (this.statusFilter === 'ALL') {
+			return rows;
+		}
+
+		return rows.filter((cr) => cr.status === this.statusFilter);
 	}
 }

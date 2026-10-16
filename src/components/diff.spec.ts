@@ -21,4 +21,18 @@ describe('computeDiff', () => {
 		const rows = computeDiff(base, [{ ...base[0], quantity: 11 }, base[1]]);
 		expect(rows.find((r) => r.sku === 'SKU-A')?.kind).toBe('changed');
 	});
+
+	it.each([{ unitPrice: 501 }, { description: 'Updated description' }])('detects an independent field change: %j', (change) => {
+		expect(computeDiff(base, [{ ...base[0], ...change }, base[1]])[0].kind).toBe('changed');
+	});
+
+	it('treats equal values as unchanged without requiring the same object or array order', () => {
+		const before = JSON.stringify(base);
+		const rows = computeDiff(base, [{ ...base[1] }, { ...base[0] }]);
+		expect(rows.map((row) => [row.sku, row.kind])).toEqual([
+			['SKU-A', 'unchanged'],
+			['SKU-B', 'unchanged'],
+		]);
+		expect(JSON.stringify(base)).toBe(before);
+	});
 });

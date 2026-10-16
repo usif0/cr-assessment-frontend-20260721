@@ -1,12 +1,13 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { CrApiService } from '../../api/cr-api.service';
 import { SessionService } from '../../session/session.service';
-import { CrDetail, TimelineEntry } from '../../models/cr.models';
+import { CrDetail, ReqUser, TimelineEntry } from '../../models/cr.models';
 import { idle, loading, ViewState } from '../../common/view-state';
 import { computeDiff, DiffRow } from '../diff.util';
 import { formatMoney } from '../../common/money.util';
+import { canApprovePolicy } from '../../common/permissions';
 
 /**
  * Change Request DETAIL page: loads a CR and renders the diff/preview, the approval timeline, and
@@ -19,29 +20,68 @@ import { formatMoney } from '../../common/money.util';
 	imports: [CommonModule, ReactiveFormsModule],
 	templateUrl: './cr-detail.component.html',
 })
-export class CrDetailComponent implements OnInit {
+export class CrDetailComponent implements OnInit, OnChanges, OnDestroy {
 	@Input() id!: string;
+	@Output() decisionCompleted = new EventEmitter<void>();
 
-	state: ViewState<CrDetail> = idle();
-	submitting = false;
-	actionError?: string;
-	// TODO: add validation so the form is invalid until a reason is entered.
-	rejectControl = new FormControl('', { nonNullable: true });
-
-	constructor(private readonly api: CrApiService, private readonly session: SessionService) {}
+	private initialized = false;
+	private loadVersion = 0;
+	private pendingDecisionIds = new Set<string>();
 
 	ngOnInit(): void {
+		this.initialized = true;
 		void this.load();
 	}
 
+	ngOnChanges(changes: SimpleChanges): void {
+		if (this.initialized && changes['id']) {
+			void this.load();
+		}
+	}
+
+	ngOnDestroy(): void {
+		this.initialized = false;
+		++this.loadVersion;
+	}
+
+	state: ViewState<CrDetail> = idle();
+	get submitting(): boolean {
+		return this.pendingDecisionIds.has(this.id);
+	}
+	actionError?: string;
+	rejectControl = new FormControl('', {
+		nonNullable: true,
+		validators: [Validators.required, Validators.pattern(/\S/)],
+	});
+
+	constructor(private readonly api: CrApiService, private readonly session: SessionService) {}
+
 	async load(): Promise<void> {
+		const version = ++this.loadVersion;
+		const id = this.id;
+		const user = this.session.user;
+
 		this.state = loading();
 		this.actionError = undefined;
+		this.rejectControl.reset();
+
 		try {
-			const detail = await this.api.getChangeRequest(this.session.user, this.id);
-			this.state = { status: 'loaded', data: detail };
+			const detail = await this.api.getChangeRequest(user, id);
+
+			if (version !== this.loadVersion) return;
+
+			this.state = {
+				status: 'loaded',
+				data: detail,
+			};
 		} catch (err) {
-			this.state = { status: 'error', data: null, error: (err as Error).message };
+			if (version !== this.loadVersion) return;
+
+			this.state = {
+				status: 'error',
+				data: null,
+				error: (err as Error).message,
+			};
 		}
 	}
 
@@ -55,32 +95,97 @@ export class CrDetailComponent implements OnInit {
 
 	/** Approval timeline, oldest-first. */
 	get timeline(): TimelineEntry[] {
-		// TODO: return the audit entries ordered chronologically (oldest first).
-		return this.detail?.audit ?? [];
+		return [...(this.detail?.audit ?? [])].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 	}
 
 	/** Whether the current user may approve the loaded CR. */
 	get canApprove(): boolean {
-		// NOTE: this only looks at the CR status. The UI must also respect the user's permissions.
-		return this.detail?.status === 'PENDING_APPROVAL';
+		const cr = this.detail;
+		const user = this.session.user;
+
+		return cr !== null && cr.status === 'PENDING_APPROVAL' && cr.orgCode === user.orgCode && canApprovePolicy(user);
 	}
 
 	get canReject(): boolean {
-		return this.detail?.status === 'PENDING_APPROVAL';
+		return this.canApprove;
 	}
 
 	fmt(amount: number): string {
 		return this.detail ? formatMoney(amount, this.detail.currency) : String(amount);
 	}
 
+	private isCurrentDecision(id: string, user: ReqUser): boolean {
+		return this.initialized && this.id === id && this.session.user === user;
+	}
+
 	async approve(): Promise<void> {
-		// TODO: perform the approve action through the API and reflect the outcome in the view.
-		throw new Error('approve() not implemented');
+		if (!this.canApprove || this.submitting) {
+			return;
+		}
+
+		// Remember which request this action belongs to
+		const requestId = this.id;
+		const requestUser = this.session.user;
+
+		this.pendingDecisionIds.add(requestId);
+		this.actionError = undefined;
+
+		try {
+			const updated = await this.api.approve(requestUser, requestId, new Date().toISOString());
+
+			// A confirmed decision also applies after navigating away and back to this CR.
+			if (this.isCurrentDecision(requestId, requestUser)) {
+				++this.loadVersion; // Invalidate any read that captured the pre-decision status.
+				this.state = {
+					status: 'loaded',
+					data: updated,
+				};
+			}
+
+			// Refresh the list after successful approval
+			this.decisionCompleted.emit();
+		} catch (err) {
+			if (this.isCurrentDecision(requestId, requestUser)) {
+				this.actionError = (err as Error).message;
+			}
+		} finally {
+			this.pendingDecisionIds.delete(requestId);
+		}
 	}
 
 	async reject(): Promise<void> {
-		// TODO: require a valid rejectControl, then perform the reject action through the API and
-		//       reflect the outcome in the view.
-		throw new Error('reject() not implemented');
+		this.rejectControl.markAsTouched();
+
+		if (!this.canReject || this.submitting || this.rejectControl.invalid) {
+			return;
+		}
+
+		const reason = this.rejectControl.value.trim();
+
+		const requestId = this.id;
+		const requestUser = this.session.user;
+
+		this.pendingDecisionIds.add(requestId);
+		this.actionError = undefined;
+
+		try {
+			const updated = await this.api.reject(requestUser, requestId, new Date().toISOString(), reason);
+
+			if (this.isCurrentDecision(requestId, requestUser)) {
+				++this.loadVersion;
+				this.state = {
+					status: 'loaded',
+					data: updated,
+				};
+			}
+
+			this.decisionCompleted.emit();
+		} catch (err) {
+			if (this.isCurrentDecision(requestId, requestUser)) {
+				this.actionError = (err as Error).message;
+			}
+		} finally {
+			this.pendingDecisionIds.delete(requestId);
+		}
 	}
 }
