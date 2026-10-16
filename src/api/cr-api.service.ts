@@ -19,14 +19,18 @@ export class CrApiService {
 	/** When true, the NEXT call rejects with a network error, then resets. */
 	failNext = false;
 
-	private settle<T>(value: T): Promise<T> {
+	private settle<T>(value: T, onSuccess?: () => void): Promise<T> {
+		const shouldFail = this.failNext;
+		this.failNext = false;
+
 		return new Promise<T>((resolve, reject) => {
 			setTimeout(() => {
-				if (this.failNext) {
-					this.failNext = false;
+				if (shouldFail) {
 					reject(new Error('Network error'));
 					return;
 				}
+
+				onSuccess?.();
 				resolve(value);
 			}, this.latencyMs);
 		});
@@ -41,7 +45,9 @@ export class CrApiService {
 			.filter((s) => s.orgCode === user.orgCode)
 			.map((s) => {
 				const d = this.detailStore[s.id];
-				return d ? { id: d.id, title: d.title, status: d.status, orgCode: d.orgCode, delta: d.delta, currency: d.currency, updatedAt: d.updatedAt } : { ...s };
+				return d
+					? { id: d.id, title: d.title, status: d.status, orgCode: d.orgCode, delta: d.delta, currency: d.currency, updatedAt: d.updatedAt }
+					: { ...s };
 			});
 		return this.settle(rows);
 	}
@@ -64,7 +70,8 @@ export class CrApiService {
 		const cr = this.detailStore[id];
 		if (!cr || cr.orgCode !== user.orgCode) return this.fail<CrDetail>('Not found');
 		const updated: CrDetail = { ...cr, status, updatedAt: at, audit: [...cr.audit, { action, byUserId: user.id, at, note }] };
-		this.detailStore[id] = updated;
-		return this.settle({ ...updated });
+		return this.settle({ ...updated }, () => {
+			this.detailStore[id] = updated;
+		});
 	}
 }
