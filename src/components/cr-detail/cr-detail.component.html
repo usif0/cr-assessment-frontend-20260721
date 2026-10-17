@@ -51,7 +51,7 @@
 				<li *ngFor="let entry of timeline" class="cr-timeline__entry">
 					<span class="cr-timeline__action">{{ entry.action }}</span>
 					<span class="cr-timeline__by">{{ entry.byUserId }}</span>
-					<span class="cr-timeline__at">{{ entry.at }}</span>
+					<span class="cr-timeline__at"> {{ entry.at | date : 'MMM d, y, h:mm a' : 'UTC' }} UTC </span>
 					<span *ngIf="entry.note" class="cr-timeline__note">{{ entry.note }}</span>
 				</li>
 			</ol>
